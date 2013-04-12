@@ -62,15 +62,16 @@ def main():
     
     print("Consumer daemon started, waiting for jobs...")
     print("Worker pool size: %d" % greenlet_pool.size)
-    i = f = s = 0
+    s = 0
     while True:
         # Since subscriber.recv() blocks when no messages are available,
         # this loop stays under control. If something is available and the
         # greenlet pool has greenlets available for use, work gets done.
         greenlet_pool.spawn(worker, subscriber.recv())
-        output = "%d/%d orders processed, %d skipped due to up-to-date cache" % (f,i,s)
+        output = "%d/%d orders processed, %d skipped due to up-to-date cache" % (int(redis.get('emdr-total-saved')),int(redis.get('emdr-total-processed')),s)
         Printer(output)
-        i += 1
+        redis.incr('emdr-total-processed')
+		
     
 def worker(job_json):
     """
@@ -84,7 +85,6 @@ def worker(job_json):
             look into logging to files per type id
             recurse into rowsets: every feed is not necessarily 1 typeID (though it usually is)
     '''
-    global f;
     global s;
     
     if REGIONS is not False:
@@ -147,7 +147,7 @@ def worker(job_json):
             'buy': [fiveAverageBuyPrice, numberOfBuyItems] }
         'history': [] }
     '''
-   
+	
     if (REGIONS == False or (REGIONS != False and str(rowsets['regionID']) in regionDict)):
         cached = redis.get('emdr-'+str(VERSION)+'-'+str(rowsets['regionID'])+'-'+str(typeID));
         
@@ -276,7 +276,7 @@ def worker(job_json):
             redis.set('emdr-'+str(VERSION)+'-'+str(rowsets['regionID'])+'-'+str(typeID), simplejson.dumps(data));
             if (DEBUG):
                 print 'SUCCESS: emdr-'+str(VERSION)+'-'+str(rowsets['regionID'])+'-'+str(typeID),simplejson.dumps(data)
-            f += 1
+            redis.incr('emdr-total-saved')
            
 
 if __name__ == '__main__':
