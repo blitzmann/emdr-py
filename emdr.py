@@ -27,7 +27,7 @@ DEBUG   = False
 REGIONS = 'regions.json' #set this to a file containing JSON of regions to filter against
 VERSION = 1 # Change every time format for Redis values changes
 
-REQUEST_TIMEOUT = 5000 # 5s
+REQUEST_TIMEOUT = 2000 # 5s
 RELAY_RETRIES   = 10 # retries per RELAY
 MAX_RETRIES     = False # set to int if you want to terminate after x retries
 RELAYS = [
@@ -62,13 +62,16 @@ def main():
     global s # increments every time we have an already UTD cache
     
     context = zmq.Context()
-    subscriber = context.socket(zmq.SUB)
+    client = context.socket(zmq.SUB)
     # Connect to the first publicly available relay.
-    subscriber.connect(RELAYS[0])
+    client.connect(RELAYS[0])
 
     # Disable filtering.
-    subscriber.setsockopt(zmq.SUBSCRIBE, "")
+    client.setsockopt(zmq.SUBSCRIBE, "")
 
+    poll = zmq.Poller()
+    poll.register(client, zmq.POLLIN)
+    
     # We use a greenlet pool to cap the number of workers at a reasonable level.
     greenlet_pool = Pool(size=MAX_NUM_POOL_WORKERS) 
     
@@ -76,13 +79,32 @@ def main():
     print("Worker pool size: %d" % greenlet_pool.size)
     s = 0
     while True:
-        # Since subscriber.recv() blocks when no messages are available,
+        # Since client.recv() blocks when no messages are available,
         # this loop stays under control. If something is available and the
         # greenlet pool has greenlets available for use, work gets done.
-        greenlet_pool.spawn(worker, subscriber.recv())
-        output = "%d/%d orders processed, %d skipped due to up-to-date cache" % (int(redis.get('emdr-total-saved')),int(redis.get('emdr-total-processed')),s)
-        Printer(output)
-        redis.incr('emdr-total-processed')
+        
+        socks = dict(poll.poll(REQUEST_TIMEOUT))
+        if socks.get(client) == zmq.POLLIN:
+            greenlet_pool.spawn(worker, client.recv())
+            output = "%d/%d orders processed, %d skipped due to up-to-date cache" % (int(redis.get('emdr-total-saved')),int(redis.get('emdr-total-processed')),s)
+            Printer(output)
+            redis.incr('emdr-total-processed')
+        else:
+            print "W: No response from server, retrying..."
+            # Socket is confused. Close and remove it.
+            client.setsockopt(zmq.LINGER, 0)
+            client.close()
+            poll.unregister(client)
+            #retries_left -= 1
+            #if retries_left == 0:
+            #    print "E: Server seems to be offline, abandoning"
+            #    break
+            print "I: Reconnecting"
+            # Create new connection
+            client = context.socket(zmq.SUB)
+            client.setsockopt(zmq.SUBSCRIBE, "")
+            client.connect(RELAYS[0])
+            poll.register(client, zmq.POLLIN)
 		
     
 def worker(job_json):
