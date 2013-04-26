@@ -22,9 +22,21 @@ import redis
 # I recommend setting this to the maximum number of connections your database
 # backend can accept, if you must open one connection per save op.
 MAX_NUM_POOL_WORKERS = 500
-DEBUG = False
+
+DEBUG   = False
 REGIONS = 'regions.json' #set this to a file containing JSON of regions to filter against
 VERSION = 1 # Change every time format for Redis values changes
+
+REQUEST_TIMEOUT = 5000 # 5s
+RELAY_RETRIES   = 10 # retries per RELAY
+MAX_RETRIES     = False # set to int if you want to terminate after x retries
+RELAYS = [
+    'tcp://relay-us-east-1.eve-emdr.com:8050',
+    'tcp://relay-us-central-1.eve-emdr.com:8050'
+    'tcp://relay-us-west-1.eve-emdr.com:8050'
+]
+
+NUM_RELAYS = len(RELAYS);
 
 ORDERS  = True
 HISTORY = False # not implemented
@@ -47,12 +59,12 @@ def main():
     The main flow of the application.
     """
 
-    global f
-    global s
+    global s # increments every time we have an already UTD cache
+    
     context = zmq.Context()
     subscriber = context.socket(zmq.SUB)
     # Connect to the first publicly available relay.
-    subscriber.connect('tcp://relay-us-east-1.eve-emdr.com:8050')
+    subscriber.connect(RELAYS[0])
 
     # Disable filtering.
     subscriber.setsockopt(zmq.SUBSCRIBE, "")
@@ -81,15 +93,14 @@ def worker(job_json):
     """
     
     '''
-    todo:   look into putting it into mysql, loading mysql into Redis
-            look into logging to files per type id
+    todo:   look into logging to files per type id
             recurse into rowsets: every feed is not necessarily 1 typeID (though it usually is)
     '''
     global s;
     
     if REGIONS is not False:
-        json_data = open(REGIONS)
-        regionDict   = json.load(json_data)
+        json_data  = open(REGIONS)
+        regionDict = json.load(json_data)
         json_data.close()
     else:
         pass
