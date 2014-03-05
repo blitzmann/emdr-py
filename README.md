@@ -7,6 +7,7 @@ NOTE: emdr-memcache.py is for archival purposes, as this is the script I origina
 Requirements
 ============
 * Python >= 2.6
+* Python ZMQ bindings (to connect to EMDR)
 * [Redis](https://github.com/andymccurdy/redis-py)
 * High bandwidth (tested at a constant 245kbps, although this rate can increase/decrease based on contributiones to the EMDR network)
 
