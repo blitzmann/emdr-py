@@ -1,12 +1,13 @@
 #!/usr/bin/env python2
 import logging
 import simplejson
-from xml.utils.iso8601 import parse
+import dateutil.parser
+import calendar
 from datetime import datetime
 import gevent
 from gevent.pool import Pool
 from gevent import monkey; gevent.monkey.patch_all()
-import zmq.green as zmq
+import zmq as zmq
 import zlib
 import sys
 import redis
@@ -73,6 +74,16 @@ def main():
     print("Consumer daemon started, waiting for jobs...")
     print("Worker pool size: %d" % greenlet_pool.size)
 
+    try:
+        int(redis.get('emdr-total-saved'))
+    except:
+        redis.set('emdr-total-saved', 0)
+
+    try:
+        int(redis.get('emdr-total-processed'))
+    except:
+        redis.set('emdr-total-processed', 0)
+
     while cont:
         socks = dict(poll.poll(REQUEST_TIMEOUT))
         if socks.get(client) == zmq.POLLIN: # message recieved within timeout
@@ -137,8 +148,8 @@ def worker(job_json):
     columns = market_data.get('columns');
 
     # Convert str time to int
-    currentTime = parse(market_data.get('currentTime'));
-    generatedAt = parse(rowsets['generatedAt']);
+    currentTime = dateutil.parser.parse(market_data.get('currentTime'));
+    generatedAt = calendar.timegm((dateutil.parser.parse(rowsets['generatedAt'])).utctimetuple());
 
     numberOfSellItems = 0;
     numberOfBuyItems  = 0;

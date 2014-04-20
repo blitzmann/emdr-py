@@ -10,6 +10,9 @@ Requirements
 * pyzmq
 * [Redis](https://github.com/andymccurdy/redis-py)
 * High bandwidth (tested at a constant 245kbps, although this rate can increase/decrease based on contributiones to the EMDR network)
+* dateutils < 2.0
+* python-gevent
+
 
 Features
 =========
@@ -40,15 +43,15 @@ Redis values
 =========
 Redis keys are of the following format: ```emdr-VERSION-REGIONID-TYPEID```. If for whatever reason the format of the values changes, the version number is incremented. This is to avoid breaking applications when the format changes.
 
-Redis values are in this format: 
+Redis values are in this format:
 
     {
     'orders': {
         'generatedAt': timestamp,
         'sell': [fivePercentSellPrice, toalSellItems],
-        'buy': [fivePercentBuyPrice, totalBuyItems] 
+        'buy': [fivePercentBuyPrice, totalBuyItems]
     	}
-    'history': [NOT IMPLEMENTED] 
+    'history': [NOT IMPLEMENTED]
     }
-        
-        
+
+
