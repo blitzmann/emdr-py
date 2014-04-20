@@ -10,15 +10,18 @@ import zmq.green as zmq
 import zlib
 import sys
 import redis
+import os
+
+abs_path = os.path.dirname(os.path.realpath(__file__))
 
 # The maximum number of greenlet workers in the greenlet pool.
 MAX_NUM_POOL_WORKERS = 500
 
 DEBUG   = False          # prints out a bunch of info.
-REGIONS = 'regions.json' # set this to a file containing JSON of regions or False for all regions
+REGIONS = abs_path + '/regions.json' # set this to a file containing JSON of regions or False for all regions
 VERSION = 1              # Change every time format for Redis values changes
 
-REQUEST_TIMEOUT = 1500  # 1.5s
+REQUEST_TIMEOUT = 10000 # 10s
 RELAY_RETRIES   = 5     # retries per relay
 MAX_RETRIES     = False # set to an int if you want to terminate script after x retries
 RELAYS = [              # top relay will be primary
@@ -45,16 +48,16 @@ class Printer():
         sys.stdout.write("\r\x1b[K"+data.__str__())
         sys.stdout.flush()
 
-        
+
 def main():
     global utd      # there should be a better way to do these than with globals
-    
+
     retry_relay = 0 # retry count per relay
     retry_max   = 0 # retry count total
     relay       = 0 # current relay in use
     utd         = 0 # increments every time we have an already UTD cache
     cont        = True # flag to exit out of loop
-    
+
     # Relay connection
     context = zmq.Context()
     client = context.socket(zmq.SUB)
@@ -63,10 +66,10 @@ def main():
 
     poll = zmq.Poller()
     poll.register(client, zmq.POLLIN)
-    
+
     # We use a greenlet pool to cap the number of workers at a reasonable level.
-    greenlet_pool = Pool(size=MAX_NUM_POOL_WORKERS) 
-    
+    greenlet_pool = Pool(size=MAX_NUM_POOL_WORKERS)
+
     print("Consumer daemon started, waiting for jobs...")
     print("Worker pool size: %d" % greenlet_pool.size)
 
@@ -85,15 +88,15 @@ def main():
             client.setsockopt(zmq.LINGER, 0)
             client.close()
             poll.unregister(client)
-            
+
             retry_relay += 1
             retry_max   += 1
-            
+
             if MAX_RETRIES is not False and retry_max == MAX_RETRIES:
                 print "E: Server(s) seem to be offline, max attempts reached, terminating"
                 cont = False
                 break
-            elif retry_relay == RELAY_RETRIES:  # we've reachec max retry attempts for this relay  
+            elif retry_relay == RELAY_RETRIES:  # we've reachec max retry attempts for this relay
                 if (relay == NUM_RELAYS-1): # if we're at te last relay loop around
                     print "E: Server seems to be offline, switching (looping)"
                     relay       = 0
@@ -115,16 +118,16 @@ def worker(job_json):
             recurse into rowsets: every feed is not necessarily 1 typeID (though it usually is)
     '''
     global utd;
-    
+
     if REGIONS is not False:
         json_data  = open(REGIONS)
         regionDict = simplejson.load(json_data)
         json_data.close()
-    
+
     # Receive raw market JSON strings.
     market_json = zlib.decompress(job_json);
     market_data = simplejson.loads(market_json);
-    
+
     # Gather some useful information
     name = market_data.get('generator');
     name = name['name'];
@@ -132,11 +135,11 @@ def worker(job_json):
     rowsets = market_data.get('rowsets')[0]; # todo: recurse into others, not just [0]
     typeID = rowsets['typeID'];
     columns = market_data.get('columns');
-    
+
     # Convert str time to int
     currentTime = parse(market_data.get('currentTime'));
     generatedAt = parse(rowsets['generatedAt']);
-    
+
     numberOfSellItems = 0;
     numberOfBuyItems  = 0;
 
@@ -151,7 +154,7 @@ def worker(job_json):
         'history': {
             'generatedAt': False}
     }
-        
+
     if DEBUG: # write raw json to file
         try:
             file = open("type-"+str(typeID)+".txt", "w")
@@ -161,21 +164,21 @@ def worker(job_json):
                 file.close()
         except IOError:
             pass
-        
+
     '''
-    Cache is in this format: 
-    
-    emdr-VERSION-REGIONID-TYPEID = 
+    Cache is in this format:
+
+    emdr-VERSION-REGIONID-TYPEID =
         {'orders': {
             'generatedAt': timestamp,
             'sell': [fiveAverageSellPrice, numberOfSellItems],
             'buy': [fiveAverageBuyPrice, numberOfBuyItems] }
         'history': [] }
     '''
-	
+
     if (REGIONS == False or (REGIONS != False and str(rowsets['regionID']) in regionDict)):
         cached = redis.get('emdr-'+str(VERSION)+'-'+str(rowsets['regionID'])+'-'+str(typeID));
-        
+
         # If data has been cached for this item, check the dates. If dates match, skip
         # todo: TEST TO MAKE SURE this is not deleting data, and only overwriting old cache
         if (cached != None):
@@ -193,9 +196,9 @@ def worker(job_json):
                     if (DEBUG):
                         print "\t\tSKIPPING";
                     return '';
-                
+
             data = cache # set default data to cached data
-                
+
         if (ORDERS and resultType == 'orders'):
             data['orders']['generatedAt'] = generatedAt
             if (DEBUG):
@@ -204,7 +207,7 @@ def worker(job_json):
             # Start putting pricing info (keys) into dicts with volume (values)
             for row in rowsets['rows']:
                 order = dict(zip(columns, row))
-                
+
                 if (order['bid'] == False):
                     if (DEBUG):
                         print "Found sell order for "+str(order['price']) + "; vol: "+str(order['volRemaining']);
@@ -222,12 +225,12 @@ def worker(job_json):
                         buyPrice[order['price']] = order['volRemaining'];
                     numberOfBuyItems += order['volRemaining'];
                 #end loop
-                
-            if (DEBUG):   
+
+            if (DEBUG):
                 print "\nSell dict:",sellPrice
                 print "\nBuy dict:",buyPrice
                 print "\nTotal volume on market: ",numberOfSellItems," Sell + ",numberOfBuyItems
-            
+
             if (numberOfSellItems > 0):
                 prices = sorted(sellPrice.items(), key=lambda x: x[0]);
                 fivePercentOfTotal = max(int(numberOfSellItems*0.05),1);
@@ -243,7 +246,7 @@ def worker(job_json):
                     if (DEBUG):
                         print "\tBought: ",bought,"/",fivePercentOfTotal
                         print "\t\tNext pop: ",fivePercentPrice," ISK, vol: ",pop[1]
-                    
+
                     if (fivePercentOfTotal > ( bought + sellPrice[fivePercentPrice])):
                         boughtPrice += sellPrice[fivePercentPrice]*fivePercentPrice;
                         bought += sellPrice[fivePercentPrice];
@@ -255,7 +258,7 @@ def worker(job_json):
                         bought = fivePercentOfTotal;
                         if (DEBUG):
                             print "\t\tGoal met. Bought:",bought
-                
+
                 fiveAverageSellPrice = boughtPrice/bought;
                 if (DEBUG):
                     print "Average selling price (first 5% of volume):",fiveAverageSellPrice
@@ -278,7 +281,7 @@ def worker(job_json):
                     if (DEBUG):
                         print "\tBought: ",bought,"/",fivePercentOfTotal
                         print "\t\tNext pop: ",fivePercentPrice," ISK, vol: ",pop[1]
-                    
+
                     if (fivePercentOfTotal > ( bought + buyPrice[fivePercentPrice])):
                         boughtPrice += buyPrice[fivePercentPrice]*fivePercentPrice;
                         bought += buyPrice[fivePercentPrice];
@@ -290,19 +293,19 @@ def worker(job_json):
                         bought = fivePercentOfTotal;
                         if (DEBUG):
                             print "\t\tGoal met. Bought:",bought
-                
+
                 fiveAverageBuyPrice = boughtPrice/bought;
                 if (DEBUG):
                     print "Average buying price (first 5% of volume):",fiveAverageBuyPrice
                 data['orders']['buy'] = [
                     "%.2f" % fiveAverageBuyPrice,
                     numberOfBuyItems]
-            
+
             redis.set('emdr-'+str(VERSION)+'-'+str(rowsets['regionID'])+'-'+str(typeID), simplejson.dumps(data));
             if (DEBUG):
                 print 'SUCCESS: emdr-'+str(VERSION)+'-'+str(rowsets['regionID'])+'-'+str(typeID),simplejson.dumps(data)
             redis.incr('emdr-total-saved')
-           
+
 
 if __name__ == '__main__':
     main()
