@@ -1,3 +1,7 @@
+DEPRECATED
+===
+The EMDR network is dead. This script doesn't do anything useful anymore. It remains here for archival purposes.
+
 emdr-py
 ========================
 emdr-py is an [EMDR](https://eve-market-data-relay.readthedocs.org/en/latest/) consumer script written in Python. It is a set-and-forget script, only needing to be restarted should the process quit unexpectidely. It gathers pricing information from the EMDR network 24/7 and stores a calculated value in a Redis key-value datbase.
